@@ -7,36 +7,57 @@ import pytz
 import threading
 import schedule
 import time
+import fcntl
+import os
+import sqlalchemy
 from datetime import datetime
 from scrapper_mysql import scraper
 
+# Define the function to run when the button is clicked
+def run_long_process():
+    # Simulate a long-running process
+    time.sleep(5)
+    # Your actual function logic here
+
+
+# #target_tz = pytz.timezone('America/New_York')
+
+# def run_scraper_with_lock():
+#     lock_file = '/tmp/streamlit_task.lock'
+#     try:
+#         # Try to acquire an exclusive lock
+#         lock = open(lock_file, 'w')
+#         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        
+#         # Run the scraper
+#         
+        
+#         # Release the lock when done
+#         fcntl.flock(lock, fcntl.LOCK_UN)
+#     except IOError:
+#         # Another instance is already running
+#         print("Scraper is already running")
+
+# def run_scheduler():
+#     while True:
+#         schedule.run_pending()
+#         time.sleep(60)  # Check every minute
+
+# # Schedule the locked version of the scraper
+# schedule.every().day.at("12:37").do(run_scraper_with_lock)
+
+# # Start the scheduler in a daemon thread
+# scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+# scheduler_thread.start()
 st.set_page_config(layout="wide")
-
-target_tz = pytz.timezone('America/New_York')
-
-def run_scheduler():
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-
-def run_scraper():
-    print("schedule scrapper")
-    scraper(scraper(st.secrets["connections.mysql"]["host"], st.secrets["connections.mysql"]["user"], st.secrets["connections.mysql"]["password"], st.secrets["connections.mysql"]["database"]))
-
-# Only define and start the scheduler once
-if "scheduler_thread_started" not in st.session_state:
-    st.session_state["scheduler_thread_started"] = True
-    schedule.every().day.at("21:05").do(run_scraper)
-    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-    scheduler_thread.start()
 
 @st.cache_resource
 def get_connection():
     return mysql.connector.connect(
-        host='sql.freedb.tech',
-        user='freedb_davidscatterday',
-        password='KC55*RM*F8ujyfn',
-        database='freedb_NYCtest'
+        host=st.secrets["mysql"]["host"],
+        user=st.secrets["mysql"]["user"],
+        password=st.secrets["mysql"]["password"],
+        database=st.secrets["mysql"]["database"]
     )
 
 conn = get_connection()
@@ -52,6 +73,12 @@ def get_unique_values(column):
 
 @st.cache_data
 def search_data(keyword, agency, procurement_method, fiscal_quarter, job_titles, headcount):
+    # while True:
+    #     try:
+    #         conn.ping(reconnect=True)
+    #         break
+    #     except mysql.connector.errors.OperationalError:
+    #         conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     query = "SELECT * FROM newtable WHERE 1=1"
     params = []
@@ -152,6 +179,27 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # Add custom CSS
+    # st.markdown("""
+    # <style>
+    #     .sidebar-bottom-left {
+    #         position: fixed;
+    #         bottom: 0;
+    #         left: 0;
+    #         padding: 10px;
+    #     }
+    #     .stButton > button {
+    #         background-color: red;
+    #         color: white;
+    #     }
+    # </style>
+    # """, unsafe_allow_html=True)
+
+    # st.markdown('<div class="sidebar-bottom-left">', unsafe_allow_html=True)
+
+
+
+
     st.sidebar.header("Search Filters")
 
     default_value = "" if st.session_state.get('reset_trigger', False) else st.session_state.get('keyword', "")
@@ -222,6 +270,13 @@ def main():
         reset_all_states()
         st.rerun()
 
+    if st.sidebar.button("Update Awards Data"):
+        with st.spinner("Processing..."):
+            scraper(st.secrets["mysql"]["host"], st.secrets["mysql"]["user"], st.secrets["mysql"]["password"], st.secrets["mysql"]["database"])
+        st.success("Award update complete!")
+
+
+
     if st.session_state.show_results and not st.session_state.results.empty:
         st.write(f"Found {len(st.session_state.results)} results:")
         select_column = pd.DataFrame({'Select': False}, index=st.session_state.results.index)
@@ -235,6 +290,8 @@ def main():
             key="editable_dataframe",
             use_container_width=True,
         )
+
+
 
         current_selection = set(edited_df[edited_df['Select']].index)
         new_selections = current_selection - st.session_state.previous_selection
